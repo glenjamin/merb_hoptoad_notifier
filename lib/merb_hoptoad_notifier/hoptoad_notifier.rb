@@ -1,4 +1,5 @@
 require 'net/http'
+require 'net/https'
 
 module HoptoadNotifier
   class << self
@@ -110,14 +111,17 @@ module HoptoadNotifier
     def send_to_hoptoad(data) #:nodoc:
       url = self.url
 
-      Net::HTTP.start(url.host, url.port) do |http|
+      connection = Net::HTTP.new(url.host, url.port)
+      connection.read_timeout = 5 # seconds
+      connection.open_timeout = 2 # seconds
+      connection.use_ssl = !!HoptoadNotifier.secure
+      connection.verify_mode = OpenSSL::SSL::VERIFY_NONE
+      connection.start do |http|
         headers = {
           'Content-type' => 'application/x-yaml',
           'Accept' => 'text/xml, application/xml'
         }
-        http.read_timeout = 5 # seconds
-        http.open_timeout = 2 # seconds
-        # http.use_ssl = HoptoadNotifier.secure
+
         response = begin
                      http.post(url.path, clean_non_serializable_data(data).to_yaml, headers)
                    rescue TimeoutError => e
