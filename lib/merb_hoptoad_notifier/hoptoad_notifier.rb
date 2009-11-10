@@ -2,13 +2,26 @@ require 'net/http'
 
 module HoptoadNotifier
   class << self
-    attr_accessor :api_key, :logger
+    attr_accessor :api_key, :logger, :secure
+
+    alias_method :secure?, :secure
 
     def configure
       key = YAML.load_file(Merb.root / 'config' / 'hoptoad.yml')
       if key
         env = key[Merb.env.to_sym]
         env ? @api_key = env[:api_key] : raise(ArgumentError, "No hoptoad key for Merb environment #{Merb.env}")
+      end
+      self.secure = Merb::Plugins.config[:merb_hoptoad_notifier][:secure]
+    end
+
+    def url
+      @url ||= begin
+        if secure?
+          URI.parse("https://hoptoadapp.com:443/notices/")
+        else
+          URI.parse("http://hoptoadapp.com:80/notices/")
+        end
       end
     end
 
@@ -47,7 +60,7 @@ module HoptoadNotifier
       send_to_hoptoad :notice => default_notice_options.merge(data)
       true
     end
-    
+
     def notify_hoptoad(request, session)
       return if request.nil?
       params = request.params
@@ -77,7 +90,7 @@ module HoptoadNotifier
       end
       true
     end
-    
+
     def notify_hoptoad_exception(exception)
       data = {
         :api_key       => HoptoadNotifier.api_key,
@@ -86,16 +99,16 @@ module HoptoadNotifier
         :backtrace     => exception.backtrace,
         :environment   => ENV.to_hash
       }
-                  
+
       data[:environment][:RAILS_ENV] = Merb.env
-     
-      send_to_hoptoad :notice => default_notice_options.merge(data)                 
+
+      send_to_hoptoad :notice => default_notice_options.merge(data)
       true
     end
-    
+
 
     def send_to_hoptoad(data) #:nodoc:
-      url = URI.parse("http://hoptoadapp.com:80/notices/")
+      url = self.url
 
       Net::HTTP.start(url.host, url.port) do |http|
         headers = {
@@ -117,9 +130,9 @@ module HoptoadNotifier
         else
           logger.error "Hoptoad Failure: #{response.class}\n#{response.body if response.respond_to? :body}"
         end
-      end            
+      end
     end
-    
+
     def default_notice_options #:nodoc:
       {
         :api_key       => HoptoadNotifier.api_key,
@@ -129,8 +142,8 @@ module HoptoadNotifier
         :session       => {},
         :environment   => {}
       }
-    end     
-    
+    end
+
     def clean_non_serializable_data(notice) #:nodoc:
       notice.select{|k,v| serializable?(v) }.inject({}) do |h, pair|
         h[pair.first] = pair.last.is_a?(Hash) ? clean_non_serializable_data(pair.last) : pair.last
@@ -139,10 +152,10 @@ module HoptoadNotifier
     end
 
     def serializable?(value) #:nodoc:
-      value.is_a?(Fixnum) || 
-      value.is_a?(Array)  || 
-      value.is_a?(String) || 
-      value.is_a?(Hash)   || 
+      value.is_a?(Fixnum) ||
+      value.is_a?(Array)  ||
+      value.is_a?(String) ||
+      value.is_a?(Hash)   ||
       value.is_a?(Bignum)
     end
 
